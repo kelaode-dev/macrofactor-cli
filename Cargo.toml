@@ -1,0 +1,18 @@
+[package]
+name = "macrofactor-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI wrapper for MacroFactor nutrition tracking via macro-factor-api"
+license = "MIT"
+repository = "https://github.com/kelaode-dev/macrofactor-cli"
+
+[dependencies]
+macro-factor-api = "0.1.1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+reqwest = { version = "0.12", features = ["json"] }
