@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use chrono::{Datelike, Local, NaiveDate};
 use clap::{Parser, Subcommand};
 use macro_factor_api::client::MacroFactorClient;
+use macro_factor_api::firestore::to_firestore_fields;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
@@ -70,6 +72,20 @@ enum Commands {
         carbs: f64,
         #[arg(long)]
         fat: f64,
+        /// Optional time override in HH:MM format (UTC)
+        #[arg(long)]
+        time: Option<String>,
+    },
+    /// Patch the time (hour/minute) of a food entry
+    PatchFoodTime {
+        #[arg(long)]
+        date: NaiveDate,
+        #[arg(long)]
+        entry_id: String,
+        #[arg(long)]
+        hour: String,
+        #[arg(long)]
+        minute: String,
     },
     /// Log a weight entry
     LogWeight {
@@ -332,15 +348,71 @@ async fn main() -> Result<()> {
             }
         }
 
-        Commands::LogFood { date, name, calories, protein, carbs, fat } => {
+        Commands::LogFood { date, name, calories, protein, carbs, fat, time } => {
             let mut client = get_client()?;
             client.log_food(date, &name, calories, protein, carbs, fat).await?;
+
+            // If --time provided, patch the newly created entry
+            if let Some(ref time_str) = time {
+                let parts: Vec<&str> = time_str.split(':').collect();
+                if parts.len() != 2 {
+                    anyhow::bail!("--time must be in HH:MM format");
+                }
+                let hour = parts[0].to_string();
+                let minute = parts[1].to_string();
+
+                // Find the entry with the highest entry_id (most recently created)
+                let entries = client.get_food_log(date).await?;
+                if let Some(entry) = entries.iter().max_by_key(|e| e.entry_id.clone()) {
+                    let uid = client.get_user_id().await?;
+                    let date_str = date.format("%Y-%m-%d").to_string();
+                    let path = format!("users/{}/food/{}", uid, date_str);
+                    let entry_id = &entry.entry_id;
+
+                    let fields = to_firestore_fields(&json!({
+                        entry_id: {
+                            "h": &hour,
+                            "mi": &minute
+                        }
+                    }));
+                    let fp1 = format!("`{}`.h", entry_id);
+                    let fp2 = format!("`{}`.mi", entry_id);
+                    client.firestore.patch_document(&path, fields, &[&fp1, &fp2]).await?;
+
+                    if !cli.json {
+                        println!("  (time set to {}:{})", hour, minute);
+                    }
+                }
+            }
 
             if cli.json {
                 println!("{}", serde_json::json!({"status": "ok", "message": "Food logged"}));
             } else {
                 println!("✓ Logged '{}' on {} — {:.0} kcal | {:.0}p / {:.0}c / {:.0}f",
                     name, date, calories, protein, carbs, fat);
+            }
+        }
+
+        Commands::PatchFoodTime { date, entry_id, hour, minute } => {
+            let mut client = get_client()?;
+            let uid = client.get_user_id().await?;
+            let date_str = date.format("%Y-%m-%d").to_string();
+            let path = format!("users/{}/food/{}", uid, date_str);
+
+            let fields = to_firestore_fields(&json!({
+                &entry_id: {
+                    "h": &hour,
+                    "mi": &minute
+                }
+            }));
+            let fp1 = format!("`{}`.h", entry_id);
+            let fp2 = format!("`{}`.mi", entry_id);
+            client.firestore.patch_document(&path, fields, &[&fp1, &fp2]).await?;
+
+            if cli.json {
+                println!("{}", serde_json::json!({"status": "ok", "message": "Food time patched"}));
+            } else {
+                println!("✓ Patched entry {} on {} → {}:{}", entry_id, date, hour, minute);
             }
         }
 
