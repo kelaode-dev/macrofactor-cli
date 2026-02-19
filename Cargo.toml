@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/kelaode-dev/macrofactor-cli"
 
 [dependencies]
-macro-factor-api = "0.1.1"
+macro-factor-api = { git = "https://github.com/benthecarman/macro-factor-rs", branch = "master" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
